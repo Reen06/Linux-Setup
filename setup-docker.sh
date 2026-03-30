@@ -104,9 +104,21 @@ build_image() {
     log "Generating build context in $ctx ..."
     local df="$ctx/Dockerfile"
 
+    # Write prompt resource file (no escaping headaches this way)
+    cat > "$ctx/resources/prompt.sh" << 'PSEOF'
+# Blue colored prompt for the container root shell
+PS1="\[\033[1;34m\]\u@\h:\w\$ \[\033[0m\]"
+PSEOF
+
     {
         printf 'FROM %s\n' "$DOCKER_BASE_IMAGE"
-        printf 'ENV DEBIAN_FRONTEND=noninteractive\n\n'
+        printf 'ENV DEBIAN_FRONTEND=noninteractive\n'
+        printf 'ENV TERM=xterm-256color\n\n'
+
+        # Always inject colored prompt — makes the container feel like home
+        printf '# Blue bash prompt\n'
+        printf 'COPY resources/prompt.sh /tmp/prompt.sh\n'
+        printf 'RUN cat /tmp/prompt.sh >> /root/.bashrc && rm /tmp/prompt.sh\n\n'
 
         if is_enabled "system-update"; then
             printf '# System update\n'
@@ -208,11 +220,13 @@ build_image() {
     if docker build -t "${IMAGE_NAME}:${IMAGE_TAG}" "$ctx"; then
         printf '%s\n\n' "────────────────────────────────────────────────────────"
         log "Image built: ${IMAGE_NAME}:${IMAGE_TAG}"
-        printf '\n%sRun it now?%s  docker run -it --rm %s:%s  [Y/n]: ' \
-            "$C_BOLD" "$C_RESET" "$IMAGE_NAME" "$IMAGE_TAG"
+        printf '\n%sRun it now?%s  [Y/n]: ' "$C_BOLD" "$C_RESET"
         local ans; read -r ans
         if [[ ! "${ans:-Y}" =~ ^[Nn] ]]; then
-            docker run -it --rm "${IMAGE_NAME}:${IMAGE_TAG}"
+            # --network=host: the container shares the host's network stack.
+            # Any port opened inside the container is instantly available on
+            # the host — no -p flags or manual port forwarding ever needed.
+            docker run -it --rm --network=host "${IMAGE_NAME}:${IMAGE_TAG}"
         fi
     else
         warn "Docker build failed. Check output above."
