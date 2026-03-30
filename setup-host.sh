@@ -27,9 +27,9 @@ LOGFILE="${HOME}/setup-install.log"
 SUMMARYFILE="${HOME}/setup-summary.log"
 BASHRC="${HOME}/.bashrc"
 
-# Miniconda version. "latest" uses the rolling latest release.
-# To pin: set to a full version string, e.g. "py311_24.9.2-0"
-MINICONDA_VERSION="${MINICONDA_VERSION:-latest}"
+# Load shared module definitions, package lists, and content generators
+# shellcheck source=programs.conf
+source "$(dirname "${BASH_SOURCE[0]}")/programs.conf"
 
 # ─── Flags (set by CLI args or environment) ───────────────────────────────────
 DRY_RUN=0
@@ -64,26 +64,6 @@ declare -a _STEP_ORDER=()   # step names in run order
 declare -a _FOLLOWUPS=()    # manual follow-up messages
 declare -A ENABLED=()       # module-id → 1 if selected
 _STEP_STATUS=""             # set to "skip" inside a step function
-
-# ─── Module Definitions ───────────────────────────────────────────────────────
-# Format: "id|Display label|ON or OFF (default)"
-MODULES=(
-    "system-update|System Update (apt update + upgrade)|ON"
-    "base-packages|Base Packages (micro, nnn, btop, fzf, git, wget...)|ON"
-    "docker|Docker Engine + group setup|ON"
-    "miniconda|Miniconda (Python distribution)|ON"
-    "conda-init|Conda Init (.bashrc initialization)|ON"
-    "mamba|Mamba (faster conda solver)|ON"
-    "nnn-plugin|nnn runfile plugin|ON"
-    "bashrc-core|Shell aliases + NNN_PLUG export|ON"
-    "conda-manager|conda_manager() fzf TUI function|ON"
-    "mamba-manager|mamba_manager() fzf TUI function|ON"
-    "nvidia-toolkit|NVIDIA Container Toolkit (skips if no GPU)|ON"
-    "openfoam|OpenFOAM CFD solver (adds repo if needed)|OFF"
-    "paraview|ParaView visualization tool|OFF"
-    "freecad|FreeCAD 3D CAD software|OFF"
-    "claude-code|Claude Code CLI (AI coding assistant)|ON"
-)
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 _ts() { date '+%Y-%m-%d %H:%M:%S'; }
@@ -192,22 +172,7 @@ install_apt_pkg() {
     fi
 }
 
-# miniconda_url — returns the correct installer URL for this arch and version
-miniconda_url() {
-    local arch
-    case "$(uname -m)" in
-        x86_64)          arch="x86_64" ;;
-        aarch64|arm64)   arch="aarch64" ;;
-        *)               arch="x86_64"; warn "Unknown arch $(uname -m), defaulting to x86_64" ;;
-    esac
-
-    local ver="$MINICONDA_VERSION"
-    if [[ "$ver" == "latest" ]]; then
-        printf 'https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-%s.sh' "$arch"
-    else
-        printf 'https://repo.anaconda.com/miniconda/Miniconda3-%s-Linux-%s.sh' "$ver" "$arch"
-    fi
-}
+# miniconda_url — defined in programs.conf
 
 # append_managed_block <block-id> <content>
 # Writes (or replaces) a clearly-marked block in $BASHRC.
@@ -368,11 +333,7 @@ step_system_update() {
 }
 
 step_base_packages() {
-    local packages=(
-        micro nnn btop fzf curl git wget
-        python3 python3-pip nodejs npm
-        timeshift build-essential lsb-release
-    )
+    local packages=("${PKGS_BASE[@]}" "${PKGS_HOST_EXTRA[@]}")
     local failed=()
     for pkg in "${packages[@]}"; do
         install_apt_pkg "$pkg" || failed+=("$pkg")
@@ -482,33 +443,7 @@ step_nnn_plugin() {
     local plugin_file="${plugin_dir}/runfile"
     mkdir -p "$plugin_dir"
     log "Writing nnn runfile plugin to $plugin_file..."
-    cat > "$plugin_file" << 'PLUGEOF'
-#!/usr/bin/env bash
-f="$nnn"
-d="$(dirname -- "$f")"
-b="$(basename -- "$f")"
-cd -- "$d" || exit 1
-case "$b" in
-  *.sh)
-    [ -x "$b" ] || chmod +x "$b"
-    ./"$b"
-    ;;
-  *.py)
-    python3 "$b"
-    ;;
-  *.js)
-    node "$b"
-    ;;
-  *)
-    if [ -x "$b" ]; then
-      ./"$b"
-    else
-      echo "Do not know how to run: $b"
-      read -r _
-    fi
-    ;;
-esac
-PLUGEOF
+    get_nnn_plugin_content > "$plugin_file"
     chmod +x "$plugin_file"
     log "nnn runfile plugin installed."
 }
@@ -525,49 +460,10 @@ step_bashrc_blocks() {
     if is_enabled "conda-manager" || is_enabled "mamba-manager"; then
         local managers_content=""
 
-        if is_enabled "conda-manager"; then
-            managers_content+=$(cat << 'CONDAEOF'
-conda_manager() {
-    selected=$(conda env list | sed '1,2d' | awk '{print $1}' | sed '/^$/d' | fzf --height 40% --reverse --border --prompt="Env > ")
-    [ -z "$selected" ] && return
-    action=$(printf "activate\ndelete\nclone\ninfo\nlist packages" | fzf --height 40% --reverse --border --prompt="Action ($selected) > ")
-    case "$action" in
-        activate) conda activate "$selected" ;;
-        delete) conda remove -n "$selected" --all ;;
-        clone)
-            read -rp "New env name: " new_name
-            [ -z "$new_name" ] && return
-            conda create --name "$new_name" --clone "$selected"
-            ;;
-        info) conda env list | grep "$selected" ;;
-        "list packages") conda list -n "$selected" ;;
-    esac
-}
-CONDAEOF
-)
-        fi
-
+        is_enabled "conda-manager" && managers_content+=$(get_conda_manager_content)
         if is_enabled "mamba-manager"; then
             [[ -n "$managers_content" ]] && managers_content+=$'\n'
-            managers_content+=$(cat << 'MAMBAEOF'
-mamba_manager() {
-    selected=$(mamba env list | sed '1,2d' | awk '{print $1}' | sed '/^$/d' | fzf --height 40% --reverse --border --prompt="Env > ")
-    [ -z "$selected" ] && return
-    action=$(printf "activate\ndelete\nclone\ninfo\nlist packages" | fzf --height 40% --reverse --border --prompt="Action ($selected) > ")
-    case "$action" in
-        activate) conda activate "$selected" ;;
-        delete) mamba remove -n "$selected" --all ;;
-        clone)
-            read -rp "New env name: " new_name
-            [ -z "$new_name" ] && return
-            mamba create --name "$new_name" --clone "$selected"
-            ;;
-        info) mamba env list | grep "$selected" ;;
-        "list packages") mamba list -n "$selected" ;;
-    esac
-}
-MAMBAEOF
-)
+            managers_content+=$(get_mamba_manager_content)
         fi
 
         append_managed_block "personal-setup-managers" "$managers_content"
@@ -822,7 +718,8 @@ main() {
     log "Starting setup. Log: $LOGFILE"
     log "User: ${USER}  Host: $(uname -n)  Arch: $(uname -m)"
 
-    # Module selection
+    # Merge shared + host-only modules, then show selector
+    MODULES=("${SHARED_MODULES[@]}" "${HOST_ONLY_MODULES[@]}")
     show_module_selector
 
     log "Selected modules: ${!ENABLED[*]}"
