@@ -407,9 +407,9 @@ step_bashrc_blocks() {
             is_subitem_enabled "nnn-plugin" "runfile"      && _plug+="r:runfile;"
             is_subitem_enabled "nnn-plugin" "runfile-exit" && _plug+="R:runfile-exit;"
             _plug="${_plug%;}"
-            [[ -n "$_plug" ]] && core_content+=$'\nexport NNN_PLUG=\'"$_plug"$'\''
+            [[ -n "$_plug" ]] && core_content+=$'\n'"export NNN_PLUG='$_plug'"
         fi
-        is_enabled "docker" && core_content+=$'\nalias dm=\'bash '"$script_dir"'/dm.sh\''
+        is_enabled "docker" && core_content+=$'\n'"alias dm='bash $script_dir/dm.sh'"
         append_managed_block "personal-setup-core" "$core_content"
     fi
 
