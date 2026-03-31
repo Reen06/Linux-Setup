@@ -84,6 +84,19 @@ build_image() {
 PS1="\[\033[1;35m\]\u@\h:\w\$ \[\033[0m\]"
 PSEOF
 
+    # nnn auto-start: runs only in the top-level shell (SHLVL=1), not in subshells
+    # nnn spawns with SHLVL=2, so exit there just returns to nnn as expected
+    # pressing q in nnn exits nnn → exit fires → container stops cleanly
+    cat > "$ctx/resources/nnn-autostart.sh" << 'NASEOF'
+if [[ "${SHLVL:-1}" -eq 1 ]] && [[ -z "${NNN_STARTED:-}" ]]; then
+    export NNN_STARTED=1
+    nnn
+    tput cnorm 2>/dev/null
+    stty sane 2>/dev/null
+    exit
+fi
+NASEOF
+
     {
         printf 'FROM %s\n' "$DOCKER_BASE_IMAGE"
         printf 'ENV DEBIAN_FRONTEND=noninteractive\n'
@@ -149,13 +162,15 @@ PSEOF
         fi
 
         if is_enabled "bashrc-core"; then
-            printf '# Shell aliases\n'
+            printf '# Shell config\n'
             printf 'RUN echo '"'"'alias refresh="source ~/.bashrc"'"'"' >> /root/.bashrc\n'
             # nnn wrapper: restores terminal state on exit (fixes cursor/display in containers)
             printf 'RUN echo '"'"'nnn() { command nnn "$@"; tput cnorm 2>/dev/null; stty sane 2>/dev/null; }'"'"' >> /root/.bashrc\n'
             is_enabled "nnn-plugin" && \
                 printf 'RUN echo '"'"'export NNN_PLUG="r:runfile;R:runfile-exit"'"'"' >> /root/.bashrc\n'
-            printf '\n'
+            # Auto-start nnn as the container interface; exit when done
+            printf 'COPY resources/nnn-autostart.sh /tmp/nnn-autostart.sh\n'
+            printf 'RUN cat /tmp/nnn-autostart.sh >> /root/.bashrc && rm /tmp/nnn-autostart.sh\n\n'
         fi
 
         if is_enabled "conda-manager" || is_enabled "mamba-manager"; then
