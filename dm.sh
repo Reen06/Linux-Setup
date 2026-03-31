@@ -44,11 +44,21 @@ run_image() {
     local img; img=$(image_name "$img_line")
     [[ -z "$img" ]] && return
 
-    local run_args=(--init -it)
+    printf '%sContainer name (blank = auto): %s' "$C_BOLD" "$C_RESET"
+    local cname; read -r cname
+
+    local mode_choice
+    mode_choice=$(printf "enter now — open interactive shell\nstart in background — keep running, attach later" \
+        | fzf --prompt="Mode > " --height=15% --reverse --border)
+    [[ -z "$mode_choice" ]] && return
+
+    local run_args=(--init)
+    [[ -n "$cname" ]] && run_args+=(--name "$cname")
+    [[ "$mode_choice" == enter* ]] && run_args+=(-it) || run_args+=(-dit)
 
     local rm_choice
-    rm_choice=$(printf "yes — remove on exit (--rm)\nno  — keep container after exit" \
-        | fzf --prompt="Remove on exit? > " --height=15% --reverse --border)
+    rm_choice=$(printf "no  — keep container when stopped\nyes — remove when stopped (--rm)" \
+        | fzf --prompt="Remove when stopped? > " --height=15% --reverse --border)
     [[ -z "$rm_choice" ]] && return
     [[ "$rm_choice" == yes* ]] && run_args+=(--rm)
 
@@ -59,7 +69,13 @@ run_image() {
     [[ "$net_choice" == yes* ]] && run_args+=(--network=host)
 
     log "Running: docker run ${run_args[*]} $img"
-    docker run "${run_args[@]}" "$img"
+    if [[ "$mode_choice" == enter* ]]; then
+        docker run "${run_args[@]}" "$img"
+    else
+        local cid; cid=$(docker run "${run_args[@]}" "$img")
+        log "Container started: ${cid:0:12}"
+        log "Use 'manage containers → attach' to enter it."
+    fi
 }
 
 manage_containers() {
