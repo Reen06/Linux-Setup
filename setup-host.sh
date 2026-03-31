@@ -461,9 +461,9 @@ step_nvidia_toolkit() {
     log "NVIDIA Container Toolkit configured."
 }
 
-# Add the OpenFOAM Foundation repo if packages aren't in current sources
+# Add the ESI/OpenCFD OpenFOAM repo if the package isn't in current sources
 _openfoam_add_repo() {
-    log "OpenFOAM packages not found in apt sources. Attempting to add repo..."
+    log "Adding ESI OpenFOAM repo for openfoam${OPENFOAM_VERSION}..."
 
     if ! command_exists lsb_release; then
         warn "lsb_release not available — cannot auto-detect Ubuntu codename for OpenFOAM repo."
@@ -476,13 +476,11 @@ _openfoam_add_repo() {
         return 1
     fi
 
-    log "Adding OpenFOAM Foundation repo for Ubuntu $codename..."
-
-    curl -fsSL https://dl.openfoam.org/gpg.key \
+    curl -fsSL https://dl.openfoam.com/pubkey.gpg \
         | sudo gpg --dearmor -o /usr/share/keyrings/openfoam.gpg >> "$LOGFILE" 2>&1 \
         || { warn "Failed to add OpenFOAM GPG key."; return 1; }
 
-    printf 'deb [signed-by=/usr/share/keyrings/openfoam.gpg] https://dl.openfoam.org/ubuntu %s main\n' "$codename" \
+    printf 'deb [signed-by=/usr/share/keyrings/openfoam.gpg arch=amd64] https://dl.openfoam.com/ubuntu %s main\n' "$codename" \
         | sudo tee /etc/apt/sources.list.d/openfoam.list >> "$LOGFILE" \
         || { warn "Failed to write OpenFOAM apt source."; return 1; }
 
@@ -493,32 +491,23 @@ _openfoam_add_repo() {
 }
 
 step_openfoam() {
-    if pkg_installed openfoam13 || pkg_installed openfoam12; then
-        skip_step "OpenFOAM already installed"
+    local pkg="openfoam${OPENFOAM_VERSION}"
+
+    if pkg_installed "$pkg"; then
+        skip_step "OpenFOAM $OPENFOAM_VERSION already installed"
         return 0
     fi
 
-    # If neither version is in apt cache, try adding the repo first
-    if ! apt-cache show openfoam13 &>/dev/null 2>&1 \
-    && ! apt-cache show openfoam12 &>/dev/null 2>&1; then
+    if ! apt-cache show "$pkg" &>/dev/null 2>&1; then
         _openfoam_add_repo || warn "Could not add OpenFOAM repo automatically."
     fi
 
-    local of_installed=false
-    for version in openfoam13 openfoam12; do
-        log "Trying to install $version..."
-        if sudo apt-get install -y "$version" >> "$LOGFILE" 2>&1; then
-            log "$version installed successfully."
-            of_installed=true
-            break
-        else
-            warn "$version not available."
-        fi
-    done
-
-    if ! $of_installed; then
-        warn "Could not install OpenFOAM 12 or 13."
-        add_followup "OpenFOAM install failed. See: https://openfoam.org/download/linux/"
+    log "Installing $pkg..."
+    if sudo apt-get install -y "$pkg" >> "$LOGFILE" 2>&1; then
+        log "$pkg installed successfully."
+    else
+        warn "Could not install $pkg."
+        add_followup "OpenFOAM install failed. See: https://openfoam.com/download/"
         return 1
     fi
 }

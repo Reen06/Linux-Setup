@@ -161,13 +161,13 @@ PSEOF
         if is_enabled "openfoam"; then
             # Ubuntu 24.04 codename is "noble"; adjust if DOCKER_BASE_IMAGE changes
             local codename="noble"
-            printf '# OpenFOAM\n'
+            printf '# OpenFOAM %s (ESI/OpenCFD)\n' "$OPENFOAM_VERSION"
             printf 'RUN apt-get update \\\n'
             printf '    && apt-get install -y curl gpg \\\n'
-            printf '    && curl -fsSL https://dl.openfoam.org/gpg.key | gpg --dearmor -o /usr/share/keyrings/openfoam.gpg \\\n'
-            printf '    && echo "deb [signed-by=/usr/share/keyrings/openfoam.gpg] https://dl.openfoam.org/ubuntu %s main" > /etc/apt/sources.list.d/openfoam.list \\\n' "$codename"
+            printf '    && curl -fsSL https://dl.openfoam.com/pubkey.gpg | gpg --dearmor -o /usr/share/keyrings/openfoam.gpg \\\n'
+            printf '    && echo "deb [signed-by=/usr/share/keyrings/openfoam.gpg arch=amd64] https://dl.openfoam.com/ubuntu %s main" > /etc/apt/sources.list.d/openfoam.list \\\n' "$codename"
             printf '    && apt-get update \\\n'
-            printf '    && (apt-get install -y openfoam13 || apt-get install -y openfoam12) \\\n'
+            printf '    && apt-get install -y openfoam%s \\\n' "$OPENFOAM_VERSION"
             printf '    && rm -rf /var/lib/apt/lists/*\n\n'
         fi
 
