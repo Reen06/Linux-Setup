@@ -270,7 +270,11 @@ step_system_update() {
 }
 
 step_base_packages() {
-    local packages=("${PKGS_BASE[@]}" "${PKGS_HOST_EXTRA[@]}")
+    local packages=()
+    for pkg in "${PKGS_BASE[@]}"; do
+        is_subitem_enabled "base-packages" "$pkg" && packages+=("$pkg")
+    done
+    packages+=("${PKGS_HOST_EXTRA[@]}")  # host-only extras always included
     local failed=()
     for pkg in "${packages[@]}"; do
         install_apt_pkg "$pkg" || failed+=("$pkg")
@@ -378,12 +382,16 @@ step_mamba() {
 step_nnn_plugin() {
     local plugin_dir="${HOME}/.config/nnn/plugins"
     mkdir -p "$plugin_dir"
-    log "Writing nnn runfile plugin to ${plugin_dir}/runfile..."
-    get_nnn_plugin_content > "${plugin_dir}/runfile"
-    chmod +x "${plugin_dir}/runfile"
-    log "Writing nnn runfile-exit plugin to ${plugin_dir}/runfile-exit..."
-    get_nnn_exit_plugin_content > "${plugin_dir}/runfile-exit"
-    chmod +x "${plugin_dir}/runfile-exit"
+    if is_subitem_enabled "nnn-plugin" "runfile"; then
+        log "Writing nnn runfile plugin to ${plugin_dir}/runfile..."
+        get_nnn_plugin_content > "${plugin_dir}/runfile"
+        chmod +x "${plugin_dir}/runfile"
+    fi
+    if is_subitem_enabled "nnn-plugin" "runfile-exit"; then
+        log "Writing nnn runfile-exit plugin to ${plugin_dir}/runfile-exit..."
+        get_nnn_exit_plugin_content > "${plugin_dir}/runfile-exit"
+        chmod +x "${plugin_dir}/runfile-exit"
+    fi
     log "nnn plugins installed."
 }
 
@@ -394,8 +402,14 @@ step_bashrc_blocks() {
     # Block 1: core aliases and NNN_PLUG (only if bashrc-core is enabled)
     if is_enabled "bashrc-core"; then
         local core_content='alias refresh="source ~/.bashrc"'
-        is_enabled "nnn-plugin" && core_content+=$'\nexport NNN_PLUG=\'r:runfile;R:runfile-exit\''
-        is_enabled "docker"     && core_content+=$'\nalias dm=\'bash '"$script_dir"'/dm.sh\''
+        if is_enabled "nnn-plugin"; then
+            local _plug=""
+            is_subitem_enabled "nnn-plugin" "runfile"      && _plug+="r:runfile;"
+            is_subitem_enabled "nnn-plugin" "runfile-exit" && _plug+="R:runfile-exit;"
+            _plug="${_plug%;}"
+            [[ -n "$_plug" ]] && core_content+=$'\nexport NNN_PLUG=\'"$_plug"$'\''
+        fi
+        is_enabled "docker" && core_content+=$'\nalias dm=\'bash '"$script_dir"'/dm.sh\''
         append_managed_block "personal-setup-core" "$core_content"
     fi
 

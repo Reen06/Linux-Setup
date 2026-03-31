@@ -144,6 +144,7 @@ FFEOF
             printf 'RUN apt-get update && apt-get install -y \\\n'
             for _pkg in "${PKGS_BASE[@]}"; do
                 [[ "$_pkg" == "nnn" ]] && continue  # nnn replaced by ff() in containers
+                is_subitem_enabled "base-packages" "$_pkg" || continue
                 printf '    %s \\\n' "$_pkg"
             done
             printf '    && rm -rf /var/lib/apt/lists/*\n\n'
