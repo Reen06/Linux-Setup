@@ -92,13 +92,12 @@ PSEOF
         printf 'ENV LC_ALL=en_US.UTF-8\n'
         printf 'ENV SHELL=/bin/bash\n\n'
 
-        # Locale + tini — locale fixes nnn unicode rendering; tini fixes nnn PID-1 guard
-        printf '# Locale + tini\n'
-        printf 'RUN apt-get update && apt-get install -y locales tini \\\n'
+        # Locale — required for nnn and other TUI tools to render properly
+        printf '# Locale\n'
+        printf 'RUN apt-get update && apt-get install -y locales \\\n'
         printf '    && locale-gen en_US.UTF-8 \\\n'
         printf '    && update-locale LANG=en_US.UTF-8 \\\n'
-        printf '    && rm -rf /var/lib/apt/lists/*\n'
-        printf 'ENTRYPOINT ["/usr/bin/tini", "--"]\n\n'
+        printf '    && rm -rf /var/lib/apt/lists/*\n\n'
 
         # Always inject colored prompt — makes the container feel like home
         printf '# Purple bash prompt\n'
