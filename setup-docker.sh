@@ -154,6 +154,7 @@ PSEOF
                 [[ -n "$managers_content" ]] && managers_content+=$'\n'
                 managers_content+="$(get_mamba_manager_content)"
             fi
+            managers_content+=$'\n'"$(get_cm_content)"
             printf '%s\n' "$managers_content" > "$ctx/resources/bashrc-managers"
             printf '# Conda/Mamba manager functions\n'
             printf 'COPY resources/bashrc-managers /tmp/managers.sh\n'

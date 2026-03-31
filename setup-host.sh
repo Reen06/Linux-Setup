@@ -404,6 +404,8 @@ step_bashrc_blocks() {
             [[ -n "$managers_content" ]] && managers_content+=$'\n'
             managers_content+=$(get_mamba_manager_content)
         fi
+        managers_content+=$'\n'
+        managers_content+=$(get_cm_content)
 
         append_managed_block "personal-setup-managers" "$managers_content"
     fi
