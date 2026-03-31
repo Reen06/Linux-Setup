@@ -89,7 +89,11 @@ show_selector() {
             printf '  %s–%s %s %s(skipped)%s\n' "$C_DIM" "$C_RESET" "$label" "$C_DIM" "$C_RESET"
         fi
     done
-    printf '\n%sBuild image "%s:%s"? [Y/n]: %s' "$C_BOLD" "$IMAGE_NAME" "$IMAGE_TAG" "$C_RESET"
+    printf '\n%sImage name [%s]: %s' "$C_BOLD" "$IMAGE_NAME" "$C_RESET"
+    local img_input; read -r img_input
+    [[ -n "$img_input" ]] && IMAGE_NAME="$img_input"
+
+    printf '%sBuild image "%s:%s"? [Y/n]: %s' "$C_BOLD" "$IMAGE_NAME" "$IMAGE_TAG" "$C_RESET"
     local confirm; read -r confirm
     [[ "${confirm:-Y}" =~ ^[Nn] ]] && { printf 'Cancelled.\n'; exit 0; }
 }
@@ -106,8 +110,8 @@ build_image() {
 
     # Write prompt resource file (no escaping headaches this way)
     cat > "$ctx/resources/prompt.sh" << 'PSEOF'
-# Blue colored prompt for the container root shell
-PS1="\[\033[1;34m\]\u@\h:\w\$ \[\033[0m\]"
+# Purple colored prompt for the container root shell
+PS1="\[\033[1;35m\]\u@\h:\w\$ \[\033[0m\]"
 PSEOF
 
     {
@@ -116,7 +120,7 @@ PSEOF
         printf 'ENV TERM=xterm-256color\n\n'
 
         # Always inject colored prompt — makes the container feel like home
-        printf '# Blue bash prompt\n'
+        printf '# Purple bash prompt\n'
         printf 'COPY resources/prompt.sh /tmp/prompt.sh\n'
         printf 'RUN cat /tmp/prompt.sh >> /root/.bashrc && rm /tmp/prompt.sh\n\n'
 
@@ -153,18 +157,20 @@ PSEOF
 
         if is_enabled "nnn-plugin"; then
             get_nnn_plugin_content > "$ctx/resources/nnn-runfile"
-            chmod +x "$ctx/resources/nnn-runfile"
-            printf '# nnn runfile plugin\n'
+            get_nnn_exit_plugin_content > "$ctx/resources/nnn-runfile-exit"
+            chmod +x "$ctx/resources/nnn-runfile" "$ctx/resources/nnn-runfile-exit"
+            printf '# nnn runfile plugins\n'
             printf 'RUN mkdir -p /root/.config/nnn/plugins\n'
             printf 'COPY resources/nnn-runfile /root/.config/nnn/plugins/runfile\n'
-            printf 'RUN chmod +x /root/.config/nnn/plugins/runfile\n\n'
+            printf 'COPY resources/nnn-runfile-exit /root/.config/nnn/plugins/runfile-exit\n'
+            printf 'RUN chmod +x /root/.config/nnn/plugins/runfile /root/.config/nnn/plugins/runfile-exit\n\n'
         fi
 
         if is_enabled "bashrc-core"; then
             printf '# Shell aliases\n'
             printf 'RUN echo '"'"'alias refresh="source ~/.bashrc"'"'"' >> /root/.bashrc\n'
             is_enabled "nnn-plugin" && \
-                printf 'RUN echo '"'"'export NNN_PLUG="r:runfile"'"'"' >> /root/.bashrc\n'
+                printf 'RUN echo '"'"'export NNN_PLUG="r:runfile;R:runfile-exit"'"'"' >> /root/.bashrc\n'
             printf '\n'
         fi
 

@@ -440,19 +440,21 @@ step_mamba() {
 
 step_nnn_plugin() {
     local plugin_dir="${HOME}/.config/nnn/plugins"
-    local plugin_file="${plugin_dir}/runfile"
     mkdir -p "$plugin_dir"
-    log "Writing nnn runfile plugin to $plugin_file..."
-    get_nnn_plugin_content > "$plugin_file"
-    chmod +x "$plugin_file"
-    log "nnn runfile plugin installed."
+    log "Writing nnn runfile plugin to ${plugin_dir}/runfile..."
+    get_nnn_plugin_content > "${plugin_dir}/runfile"
+    chmod +x "${plugin_dir}/runfile"
+    log "Writing nnn runfile-exit plugin to ${plugin_dir}/runfile-exit..."
+    get_nnn_exit_plugin_content > "${plugin_dir}/runfile-exit"
+    chmod +x "${plugin_dir}/runfile-exit"
+    log "nnn plugins installed."
 }
 
 step_bashrc_blocks() {
     # Block 1: core aliases and NNN_PLUG (only if bashrc-core is enabled)
     if is_enabled "bashrc-core"; then
         local core_content='alias refresh="source ~/.bashrc"'
-        is_enabled "nnn-plugin" && core_content+=$'\nexport NNN_PLUG="r:runfile"'
+        is_enabled "nnn-plugin" && core_content+=$'\nexport NNN_PLUG=\'r:runfile;R:runfile-exit\''
         append_managed_block "personal-setup-core" "$core_content"
     fi
 
