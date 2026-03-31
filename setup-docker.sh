@@ -98,9 +98,12 @@ ff() {
         local sel
         sel=$({ echo ".."; ls -1 "$dir" 2>/dev/null; } \
             | fzf --prompt=" $dir/ " --no-sort \
-                  --header="enter:cd/open  esc:quit" \
+                  --header="enter:cd/open  esc:jump here & quit" \
                   --preview="p=\"$dir/{}\"; [ -d \"\$p\" ] && ls \"\$p\" 2>/dev/null || head -100 \"\$p\" 2>/dev/null")
-        [[ -z "$sel" ]] && return
+        if [[ -z "$sel" ]]; then
+            cd "$dir"   # esc — land in wherever you navigated to
+            return
+        fi
         local t; t=$(realpath "$dir/$sel")
         if [[ -d "$t" ]]; then
             dir="$t"
