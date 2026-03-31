@@ -550,8 +550,8 @@ _openfoam_add_repo() {
         | sudo tee /etc/apt/sources.list.d/openfoam.list >> "$LOGFILE" \
         || { warn "Failed to write OpenFOAM apt source."; return 1; }
 
-    sudo apt-get update -y >> "$LOGFILE" 2>&1 \
-        || { warn "apt-get update failed after adding OpenFOAM repo."; return 1; }
+    sudo apt update -y >> "$LOGFILE" 2>&1 \
+        || { warn "apt update failed after adding OpenFOAM repo."; return 1; }
 
     log "OpenFOAM repo added."
 }
@@ -569,8 +569,13 @@ step_openfoam() {
     fi
 
     log "Installing $pkg..."
-    if sudo apt-get install -y "$pkg" >> "$LOGFILE" 2>&1; then
+    if sudo apt install -y "$pkg" >> "$LOGFILE" 2>&1; then
         log "$pkg installed successfully."
+        local _of_bashrc="/usr/lib/openfoam/openfoam${OPENFOAM_VERSION}/etc/bashrc"
+        if [[ -f "$_of_bashrc" ]]; then
+            append_managed_block "openfoam-bashrc" "source $_of_bashrc"
+            log "Added OpenFOAM bashrc source to ${BASHRC}."
+        fi
     else
         warn "Could not install $pkg."
         add_followup "OpenFOAM install failed. See: https://openfoam.com/download/"
@@ -615,14 +620,8 @@ step_claude_code() {
         return 0
     fi
 
-    if ! command_exists npm; then
-        error "npm not found — cannot install Claude Code. Install Node.js/npm first."
-        add_followup "Install Claude Code after npm is available: npm install -g @anthropic-ai/claude-code"
-        return 1
-    fi
-
-    log "Installing Claude Code CLI via npm..."
-    npm install -g @anthropic-ai/claude-code >> "$LOGFILE" 2>&1 \
+    log "Installing Claude Code via install script..."
+    curl -fsSL https://claude.ai/install.sh | bash >> "$LOGFILE" 2>&1 \
         || { error "Claude Code install failed."; return 1; }
     log "Claude Code installed: $(claude --version 2>/dev/null || true)"
 }
