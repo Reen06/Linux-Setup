@@ -234,7 +234,8 @@ FFEOF
         printf '\n%sRun it now?%s  [Y/n]: ' "$C_BOLD" "$C_RESET"
         local ans; read -r ans
         if [[ ! "${ans:-Y}" =~ ^[Nn] ]]; then
-            local run_args=(--init -it --rm)
+            local run_args=(--init -it)
+            is_enabled "auto-remove" && run_args+=(--rm)
             is_enabled "host-network" && run_args+=(--network=host)
             docker run "${run_args[@]}" "${IMAGE_NAME}:${IMAGE_TAG}"
         fi
