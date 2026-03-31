@@ -215,56 +215,6 @@ append_managed_block() {
 
 # ─── Module Selector ──────────────────────────────────────────────────────────
 
-# Whiptail-based checklist
-_selector_whiptail() {
-    local args=()
-    local id label default
-    for entry in "${MODULES[@]}"; do
-        IFS='|' read -r id label default <<< "$entry"
-        args+=("$id" "$label" "$default")
-    done
-
-    local result
-    result=$(whiptail \
-        --title "Personal Linux Setup — Module Selector" \
-        --checklist \
-        "Use SPACE to toggle. ENTER to confirm. TAB to switch buttons.\nSelected modules will be installed." \
-        30 72 18 \
-        "${args[@]}" \
-        3>&1 1>&2 2>&3) || {
-        printf '\n%sSetup cancelled.%s\n' "$C_YELLOW" "$C_RESET"
-        exit 0
-    }
-
-    # Parse whiptail output: space-separated quoted tokens → strip quotes
-    local cleaned="${result//\"/}"
-    local item
-    for item in $cleaned; do
-        [[ -n "$item" ]] && ENABLED["$item"]=1
-    done
-}
-
-# Simple read-based fallback for environments without whiptail
-_selector_simple() {
-    printf '\n%s%s%s\n' "$C_BOLD" "Personal Linux Setup — Module Selector" "$C_RESET"
-    printf '%s(Enter y/n for each module. Press ENTER for the default shown in brackets.)%s\n\n' \
-        "$C_DIM" "$C_RESET"
-
-    local id label default answer
-    for entry in "${MODULES[@]}"; do
-        IFS='|' read -r id label default <<< "$entry"
-        local prompt_default="y/N"
-        [[ "$default" == "ON" ]] && prompt_default="Y/n"
-        printf '  %-16s %s [%s]: ' "$id" "$label" "$prompt_default"
-        read -r answer
-        answer="${answer:-$default}"
-        case "${answer^^}" in
-            Y|YES|ON)  ENABLED["$id"]=1 ;;
-            *)         : ;;  # not enabled
-        esac
-    done
-    printf '\n'
-}
 
 show_module_selector() {
     # --all flag or non-interactive stdin: enable everything
@@ -288,20 +238,7 @@ show_module_selector() {
         return 0
     fi
 
-    # Ensure whiptail is available (install silently if missing)
-    if ! command_exists whiptail; then
-        printf '%sInstalling whiptail for the module selector...%s\n' "$C_DIM" "$C_RESET"
-        sudo apt-get update -qq >> "$LOGFILE" 2>&1 \
-            && sudo apt-get install -y -qq whiptail >> "$LOGFILE" 2>&1 \
-            || true  # non-fatal: falls back to simple selector below
-    fi
-
-    if command_exists whiptail; then
-        _selector_whiptail
-    else
-        warn "whiptail unavailable — using simple text selector."
-        _selector_simple
-    fi
+    run_selector "Personal Linux Setup — Module Selector"
 
     # Confirm selection
     printf '\n%s%sModules selected:%s\n' "$C_BOLD" "$C_CYAN" "$C_RESET"

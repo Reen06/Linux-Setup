@@ -37,7 +37,7 @@ warn() { printf '%s[WARN]  %s%s\n' "$C_YELLOW" "$*" "$C_RESET" >&2; }
 
 is_enabled() { [[ "${ENABLED[${1}]:-0}" == "1" ]]; }
 
-# ─── Module Selector (same whiptail bootstrap as setup-host.sh) ───────────────
+# ─── Module Selector ──────────────────────────────────────────────────────────
 show_selector() {
     if [[ "$SELECT_ALL" == "1" ]] || [[ ! -t 0 ]]; then
         local id label default
@@ -48,42 +48,7 @@ show_selector() {
         return 0
     fi
 
-    if ! command -v whiptail &>/dev/null; then
-        printf '%sInstalling whiptail...%s\n' "$C_DIM" "$C_RESET"
-        sudo apt-get update -qq && sudo apt-get install -y -qq whiptail || true
-    fi
-
-    if command -v whiptail &>/dev/null; then
-        local args=()
-        local id label default
-        for entry in "${MODULES[@]}"; do
-            IFS='|' read -r id label default <<< "$entry"
-            args+=("$id" "$label" "$default")
-        done
-        local term_cols term_lines box_w box_h list_h
-        term_cols=$(tput cols 2>/dev/null || echo 80)
-        term_lines=$(tput lines 2>/dev/null || echo 30)
-        box_w=$(( term_cols - 6 < 90 ? term_cols - 6 : 90 ))
-        box_h=$(( term_lines - 4 < 30 ? term_lines - 4 : 30 ))
-        list_h=$(( box_h - 10 ))
-        local result
-        result=$(whiptail \
-            --title "Docker Image Builder — Module Selector" \
-            --checklist "Select what to install in your Docker image.  SPACE=toggle  ENTER=confirm" \
-            "$box_h" "$box_w" "$list_h" "${args[@]}" 3>&1 1>&2 2>&3) || { printf 'Cancelled.\n'; exit 0; }
-        local cleaned="${result//\"/}"
-        for item in $cleaned; do [[ -n "$item" ]] && ENABLED["$item"]=1; done
-    else
-        # Simple fallback
-        local id label default answer
-        for entry in "${MODULES[@]}"; do
-            IFS='|' read -r id label default <<< "$entry"
-            local prompt_default="y/N"; [[ "$default" == "ON" ]] && prompt_default="Y/n"
-            printf '  %-16s %s [%s]: ' "$id" "$label" "$prompt_default"
-            read -r answer; answer="${answer:-$default}"
-            [[ "${answer^^}" =~ ^(Y|YES|ON)$ ]] && ENABLED["$id"]=1
-        done
-    fi
+    run_selector "Docker Image Builder — Module Selector"
 
     printf '\n%s%sModules selected for image:%s\n' "$C_BOLD" "$C_CYAN" "$C_RESET"
     local id label default
