@@ -123,7 +123,9 @@ PSEOF
 
         if is_enabled "mamba"; then
             printf '# Mamba\n'
-            printf 'RUN /opt/miniconda3/bin/conda install -y mamba -n base -c conda-forge\n\n'
+            printf 'RUN /opt/miniconda3/bin/conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main \\\n'
+            printf '    && /opt/miniconda3/bin/conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r \\\n'
+            printf '    && /opt/miniconda3/bin/conda install -y mamba -n base -c conda-forge\n\n'
         fi
 
         if is_enabled "nnn-plugin"; then
