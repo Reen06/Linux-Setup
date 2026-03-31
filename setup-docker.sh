@@ -29,7 +29,7 @@ fi
 
 # ─── State ────────────────────────────────────────────────────────────────────
 declare -A ENABLED=()
-MODULES=("${SHARED_MODULES[@]}")  # Docker gets shared modules only (no Docker-in-Docker, no NVIDIA)
+MODULES=("${SHARED_MODULES[@]}" "${DOCKER_ONLY_MODULES[@]}")
 
 # ─── Minimal logging ──────────────────────────────────────────────────────────
 log()  { printf '%s[INFO]  %s%s\n' "$C_GREEN"  "$*" "$C_RESET"; }
@@ -60,11 +60,17 @@ show_selector() {
             IFS='|' read -r id label default <<< "$entry"
             args+=("$id" "$label" "$default")
         done
+        local term_cols term_lines box_w box_h list_h
+        term_cols=$(tput cols 2>/dev/null || echo 80)
+        term_lines=$(tput lines 2>/dev/null || echo 30)
+        box_w=$(( term_cols - 6 < 90 ? term_cols - 6 : 90 ))
+        box_h=$(( term_lines - 4 < 30 ? term_lines - 4 : 30 ))
+        list_h=$(( box_h - 10 ))
         local result
         result=$(whiptail \
             --title "Docker Image Builder — Module Selector" \
-            --checklist "Select what to install in your Docker image.\nSPACE=toggle  ENTER=confirm" \
-            28 72 16 "${args[@]}" 3>&1 1>&2 2>&3) || { printf 'Cancelled.\n'; exit 0; }
+            --checklist "Select what to install in your Docker image.  SPACE=toggle  ENTER=confirm" \
+            "$box_h" "$box_w" "$list_h" "${args[@]}" 3>&1 1>&2 2>&3) || { printf 'Cancelled.\n'; exit 0; }
         local cleaned="${result//\"/}"
         for item in $cleaned; do [[ -n "$item" ]] && ENABLED["$item"]=1; done
     else
@@ -229,10 +235,9 @@ PSEOF
         printf '\n%sRun it now?%s  [Y/n]: ' "$C_BOLD" "$C_RESET"
         local ans; read -r ans
         if [[ ! "${ans:-Y}" =~ ^[Nn] ]]; then
-            # --network=host: the container shares the host's network stack.
-            # Any port opened inside the container is instantly available on
-            # the host — no -p flags or manual port forwarding ever needed.
-            docker run -it --rm --network=host "${IMAGE_NAME}:${IMAGE_TAG}"
+            local run_args=(-it --rm)
+            is_enabled "host-network" && run_args+=(--network=host)
+            docker run "${run_args[@]}" "${IMAGE_NAME}:${IMAGE_TAG}"
         fi
     else
         warn "Docker build failed. Check output above."
