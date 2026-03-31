@@ -73,7 +73,6 @@ show_selector() {
 build_image() {
     local ctx
     ctx="$(mktemp -d /tmp/dev-image-XXXXXX)"
-    trap 'rm -rf "$ctx"' EXIT
     mkdir -p "$ctx/resources"
 
     log "Generating build context in $ctx ..."
@@ -88,7 +87,16 @@ PSEOF
     {
         printf 'FROM %s\n' "$DOCKER_BASE_IMAGE"
         printf 'ENV DEBIAN_FRONTEND=noninteractive\n'
-        printf 'ENV TERM=xterm-256color\n\n'
+        printf 'ENV TERM=xterm-256color\n'
+        printf 'ENV LANG=en_US.UTF-8\n'
+        printf 'ENV LC_ALL=en_US.UTF-8\n\n'
+
+        # Locale — required for nnn and other TUI tools to render properly
+        printf '# Locale\n'
+        printf 'RUN apt-get update && apt-get install -y locales \\\n'
+        printf '    && locale-gen en_US.UTF-8 \\\n'
+        printf '    && update-locale LANG=en_US.UTF-8 \\\n'
+        printf '    && rm -rf /var/lib/apt/lists/*\n\n'
 
         # Always inject colored prompt — makes the container feel like home
         printf '# Purple bash prompt\n'
@@ -200,6 +208,7 @@ PSEOF
     log "Dockerfile written. Building image ${IMAGE_NAME}:${IMAGE_TAG} ..."
     printf '%s\n' "────────────────────────────────────────────────────────"
     if docker build -t "${IMAGE_NAME}:${IMAGE_TAG}" "$ctx"; then
+        rm -rf "$ctx"
         printf '%s\n\n' "────────────────────────────────────────────────────────"
         log "Image built: ${IMAGE_NAME}:${IMAGE_TAG}"
         printf '\n%sRun it now?%s  [Y/n]: ' "$C_BOLD" "$C_RESET"
@@ -210,6 +219,7 @@ PSEOF
             docker run "${run_args[@]}" "${IMAGE_NAME}:${IMAGE_TAG}"
         fi
     else
+        rm -rf "$ctx"
         warn "Docker build failed. Check output above."
         exit 1
     fi
