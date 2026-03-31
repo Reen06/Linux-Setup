@@ -142,6 +142,8 @@ PSEOF
         if is_enabled "bashrc-core"; then
             printf '# Shell aliases\n'
             printf 'RUN echo '"'"'alias refresh="source ~/.bashrc"'"'"' >> /root/.bashrc\n'
+            # nnn wrapper: restores terminal state on exit (fixes cursor/display in containers)
+            printf 'RUN echo '"'"'nnn() { command nnn "$@"; tput cnorm 2>/dev/null; stty sane 2>/dev/null; }'"'"' >> /root/.bashrc\n'
             is_enabled "nnn-plugin" && \
                 printf 'RUN echo '"'"'export NNN_PLUG="r:runfile;R:runfile-exit"'"'"' >> /root/.bashrc\n'
             printf '\n'
