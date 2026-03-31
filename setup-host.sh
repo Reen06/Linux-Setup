@@ -388,10 +388,14 @@ step_nnn_plugin() {
 }
 
 step_bashrc_blocks() {
+    local script_dir
+    script_dir="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
+
     # Block 1: core aliases and NNN_PLUG (only if bashrc-core is enabled)
     if is_enabled "bashrc-core"; then
         local core_content='alias refresh="source ~/.bashrc"'
         is_enabled "nnn-plugin" && core_content+=$'\nexport NNN_PLUG=\'r:runfile;R:runfile-exit\''
+        is_enabled "docker"     && core_content+=$'\nalias dm=\'bash '"$script_dir"'/dm.sh\''
         append_managed_block "personal-setup-core" "$core_content"
     fi
 
