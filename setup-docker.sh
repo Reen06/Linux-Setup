@@ -29,7 +29,13 @@ fi
 
 # ─── State ────────────────────────────────────────────────────────────────────
 declare -A ENABLED=()
-MODULES=("${SHARED_MODULES[@]}" "${DOCKER_ONLY_MODULES[@]}")
+# Build module list, excluding nnn-plugin (nnn doesn't work reliably in containers)
+MODULES=()
+for _entry in "${SHARED_MODULES[@]}" "${DOCKER_ONLY_MODULES[@]}"; do
+    IFS='|' read -r _id _label _default <<< "$_entry"
+    [[ "$_id" == "nnn-plugin" ]] && continue
+    MODULES+=("$_entry")
+done
 
 # ─── Minimal logging ──────────────────────────────────────────────────────────
 log()  { printf '%s[INFO]  %s%s\n' "$C_GREEN"  "$*" "$C_RESET"; }
@@ -84,6 +90,27 @@ build_image() {
 PS1="\[\033[1;35m\]\u@\h:\w\$ \[\033[0m\]"
 PSEOF
 
+    # fzf-based file browser — replaces nnn inside containers
+    cat > "$ctx/resources/ff.sh" << 'FFEOF'
+ff() {
+    local dir; dir=$(realpath "${1:-.}")
+    while true; do
+        local sel
+        sel=$({ echo ".."; ls -1 "$dir" 2>/dev/null; } \
+            | fzf --prompt=" $dir/ " --no-sort \
+                  --header="enter:cd/open  esc:quit" \
+                  --preview="p=\"$dir/{}\"; [ -d \"\$p\" ] && ls \"\$p\" 2>/dev/null || head -100 \"\$p\" 2>/dev/null")
+        [[ -z "$sel" ]] && return
+        local t; t=$(realpath "$dir/$sel")
+        if [[ -d "$t" ]]; then
+            dir="$t"
+        elif [[ -f "$t" ]]; then
+            ${EDITOR:-micro} "$t"
+        fi
+    done
+}
+FFEOF
+
     {
         printf 'FROM %s\n' "$DOCKER_BASE_IMAGE"
         printf 'ENV DEBIAN_FRONTEND=noninteractive\n'
@@ -92,7 +119,7 @@ PSEOF
         printf 'ENV LC_ALL=en_US.UTF-8\n'
         printf 'ENV SHELL=/bin/bash\n\n'
 
-        # Locale — required for nnn and other TUI tools to render properly
+        # Locale — required for TUI tools to render properly
         printf '# Locale\n'
         printf 'RUN apt-get update && apt-get install -y locales \\\n'
         printf '    && locale-gen en_US.UTF-8 \\\n'
@@ -112,7 +139,10 @@ PSEOF
         if is_enabled "base-packages"; then
             printf '# Base packages\n'
             printf 'RUN apt-get update && apt-get install -y \\\n'
-            printf '    %s \\\n' "${PKGS_BASE[@]}"
+            for _pkg in "${PKGS_BASE[@]}"; do
+                [[ "$_pkg" == "nnn" ]] && continue  # nnn replaced by ff() in containers
+                printf '    %s \\\n' "$_pkg"
+            done
             printf '    && rm -rf /var/lib/apt/lists/*\n\n'
         fi
 
@@ -137,23 +167,11 @@ PSEOF
             printf '    && /opt/miniconda3/bin/conda install -y mamba -n base -c conda-forge\n\n'
         fi
 
-        if is_enabled "nnn-plugin"; then
-            get_nnn_plugin_content > "$ctx/resources/nnn-runfile"
-            get_nnn_exit_plugin_content > "$ctx/resources/nnn-runfile-exit"
-            chmod +x "$ctx/resources/nnn-runfile" "$ctx/resources/nnn-runfile-exit"
-            printf '# nnn runfile plugins\n'
-            printf 'RUN mkdir -p /root/.config/nnn/plugins\n'
-            printf 'COPY resources/nnn-runfile /root/.config/nnn/plugins/runfile\n'
-            printf 'COPY resources/nnn-runfile-exit /root/.config/nnn/plugins/runfile-exit\n'
-            printf 'RUN chmod +x /root/.config/nnn/plugins/runfile /root/.config/nnn/plugins/runfile-exit\n\n'
-        fi
-
         if is_enabled "bashrc-core"; then
             printf '# Shell config\n'
             printf 'RUN echo '"'"'alias refresh="source ~/.bashrc"'"'"' >> /root/.bashrc\n'
-            is_enabled "nnn-plugin" && \
-                printf 'RUN echo '"'"'export NNN_PLUG="r:runfile;R:runfile-exit"'"'"' >> /root/.bashrc\n'
-            printf '\n'
+            printf 'COPY resources/ff.sh /tmp/ff.sh\n'
+            printf 'RUN cat /tmp/ff.sh >> /root/.bashrc && rm /tmp/ff.sh\n\n'
         fi
 
         if is_enabled "conda-manager" || is_enabled "mamba-manager"; then
