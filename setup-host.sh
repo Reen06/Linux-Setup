@@ -64,38 +64,70 @@ declare -a _STEP_ORDER=()   # step names in run order
 declare -a _FOLLOWUPS=()    # manual follow-up messages
 declare -A ENABLED=()       # module-id → 1 if selected
 _STEP_STATUS=""             # set to "skip" inside a step function
+_SPINNER_PID=""             # PID of background spinner process
+_SPINNER_ACTIVE=0           # 1 while a step is running (suppresses log terminal output)
+_STEP_START=0               # $SECONDS at step start (for elapsed time)
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 _ts() { date '+%Y-%m-%d %H:%M:%S'; }
 
 log() {
     local plain="[INFO]  $(_ts)  $*"
-    printf '%s%s%s\n' "$C_GREEN" "$plain" "$C_RESET"
+    [[ "$_SPINNER_ACTIVE" == "0" ]] && printf '%s%s%s\n' "$C_GREEN" "$plain" "$C_RESET"
     printf '%s\n' "$plain" >> "$LOGFILE"
 }
 
 warn() {
     local plain="[WARN]  $(_ts)  $*"
-    printf '%s%s%s\n' "$C_YELLOW" "$plain" "$C_RESET" >&2
+    [[ "$_SPINNER_ACTIVE" == "0" ]] && printf '%s%s%s\n' "$C_YELLOW" "$plain" "$C_RESET" >&2
     printf '%s\n' "$plain" >> "$LOGFILE"
 }
 
 error() {
     local plain="[ERROR] $(_ts)  $*"
-    printf '%s%s%s\n' "$C_RED" "$plain" "$C_RESET" >&2
+    [[ "$_SPINNER_ACTIVE" == "0" ]] && printf '%s%s%s\n' "$C_RED" "$plain" "$C_RESET" >&2
     printf '%s\n' "$plain" >> "$LOGFILE"
 }
 
 section() {
     local title="  $*"
     local sep="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    # Terminal: bold cyan separator
-    printf '\n%s%s%s\n%s\n%s%s%s\n\n' \
+    [[ "$_SPINNER_ACTIVE" == "0" ]] && printf '\n%s%s%s\n%s\n%s%s%s\n\n' \
         "$C_BOLD$C_CYAN" "$sep" "$C_RESET" \
         "$title" \
         "$C_BOLD$C_CYAN" "$sep" "$C_RESET"
-    # Log file: plain text
     printf '\n%s\n%s\n%s\n\n' "$sep" "$title" "$sep" >> "$LOGFILE"
+}
+
+# ─── Spinner ──────────────────────────────────────────────────────────────────
+_start_spinner() {
+    local _label="$1"
+    _SPINNER_ACTIVE=1
+    _STEP_START=$SECONDS
+    local _log="$LOGFILE" _cyan="$C_CYAN" _reset="$C_RESET"
+    (
+        local _f=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏) _i=0
+        while true; do
+            local _last
+            _last=$(tail -1 "$_log" 2>/dev/null \
+                | sed 's/^\[[A-Z]*\][[:space:]]*[0-9-]* [0-9:]*[[:space:]]*//' \
+                | cut -c1-50)
+            printf '\r  %s%s%s  %-36s  \033[2m%s\033[0m\033[K' \
+                "$_cyan" "${_f[$_i]}" "$_reset" "$_label" "$_last"
+            _i=$(( (_i+1) % 10 ))
+            sleep 0.1
+        done
+    ) &
+    _SPINNER_PID=$!
+}
+
+_stop_spinner() {
+    [[ -z "$_SPINNER_PID" ]] && return
+    kill "$_SPINNER_PID" 2>/dev/null
+    wait "$_SPINNER_PID" 2>/dev/null
+    _SPINNER_PID=""
+    _SPINNER_ACTIVE=0
+    printf '\r\033[K'
 }
 
 # Print one line to both terminal (with optional color) and log file (plain).
@@ -122,26 +154,40 @@ run_step() {
     local func="$2"
     _STEP_STATUS=""
     _STEP_ORDER+=("$name")
-    section "$name"
 
     if [[ "$DRY_RUN" == "1" ]]; then
-        log "${C_DIM}[DRY-RUN] would execute: $func${C_RESET}"
+        printf '  \033[2m–  %s  (dry-run)\033[0m\n' "$name"
+        printf '[DRY-RUN] %s\n' "$name" >> "$LOGFILE"
         _RESULTS["$name"]="SKIPPED"
         return 0
     fi
 
-    log "▶ Starting: $name"
+    # Suppress terminal output from log/warn/error while spinner is running
+    _SPINNER_ACTIVE=1
+    section "$name"
+    printf '[INFO]  %s  ▶ Starting: %s\n' "$(_ts)" "$name" >> "$LOGFILE"
+    _start_spinner "$name"
+
     if "$func"; then
+        _stop_spinner
         if [[ "$_STEP_STATUS" == "skip" ]]; then
             _RESULTS["$name"]="SKIPPED"
-            log "⏭ Skipped:   $name"
+            printf '[INFO]  %s  ⏭ Skipped: %s\n' "$(_ts)" "$name" >> "$LOGFILE"
+            printf '  %s⏭%s  %-36s  \033[2m(already done)\033[0m\n' \
+                "$C_DIM" "$C_RESET" "$name"
         else
+            local _elapsed=$(( SECONDS - _STEP_START ))
             _RESULTS["$name"]="SUCCEEDED"
-            log "✓ Succeeded: $name"
+            printf '[INFO]  %s  ✓ Succeeded: %s\n' "$(_ts)" "$name" >> "$LOGFILE"
+            printf '  %s✓%s  %-36s  \033[2m(%ds)\033[0m\n' \
+                "$C_GREEN" "$C_RESET" "$name" "$_elapsed"
         fi
     else
+        _stop_spinner
         _RESULTS["$name"]="FAILED"
-        error "✗ Failed:    $name"
+        printf '[ERROR] %s  ✗ Failed: %s\n' "$(_ts)" "$name" >> "$LOGFILE"
+        printf '  %s✗%s  %-36s  \033[2msee %s\033[0m\n' \
+            "$C_RED" "$C_RESET" "$name" "$LOGFILE"
     fi
 }
 
