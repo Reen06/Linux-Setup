@@ -614,6 +614,29 @@ step_freecad() {
         || { add_followup "Install FreeCAD manually: https://www.freecad.org/downloads.php"; return 1; }
 }
 
+step_wifi_manager() {
+    if ! command_exists nmcli; then
+        log "nmcli not found — installing network-manager..."
+        install_apt_pkg network-manager || { error "Failed to install network-manager."; return 1; }
+    fi
+
+    if [[ -d "${WIFI_MANAGER_DIR}/.git" ]]; then
+        log "Updating existing wifi-manager checkout at ${WIFI_MANAGER_DIR}..."
+        git -C "$WIFI_MANAGER_DIR" pull >> "$LOGFILE" 2>&1 \
+            || { error "Failed to update wifi-manager repo."; return 1; }
+    else
+        log "Cloning wifi-manager from ${WIFI_MANAGER_REPO}..."
+        git clone "$WIFI_MANAGER_REPO" "$WIFI_MANAGER_DIR" >> "$LOGFILE" 2>&1 \
+            || { error "Failed to clone wifi-manager repo."; return 1; }
+    fi
+
+    log "Installing wifi-manager into PATH..."
+    sudo bash "${WIFI_MANAGER_DIR}/install.sh" >> "$LOGFILE" 2>&1 \
+        || { error "wifi-manager install.sh failed."; return 1; }
+
+    log "wifi-manager installed. Run 'wifi-manager' from anywhere."
+}
+
 step_claude_code() {
     if command_exists claude; then
         skip_step "Claude Code already installed: $(claude --version 2>/dev/null || true)"
@@ -732,6 +755,7 @@ main() {
     fi
 
     is_enabled "nvidia-toolkit"  && run_step "NVIDIA Container Toolkit"  step_nvidia_toolkit
+    is_enabled "wifi-manager"    && run_step "Wi-Fi Manager"             step_wifi_manager
     is_enabled "openfoam"        && run_step "OpenFOAM"                  step_openfoam
     is_enabled "paraview"        && run_step "ParaView"                  step_paraview
     is_enabled "freecad"         && run_step "FreeCAD"                   step_freecad
