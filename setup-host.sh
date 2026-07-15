@@ -732,6 +732,20 @@ step_claude_code() {
     log "Installing Claude Code via install script..."
     curl -fsSL https://claude.ai/install.sh | bash >> "$LOGFILE" 2>&1 \
         || { error "Claude Code install failed."; return 1; }
+
+    # The installer puts the binary in ~/.local/bin, which this script's own
+    # PATH may not have yet — export it now so the check below (and the rest
+    # of this run) can actually see it, and write a dedicated managed block
+    # so future shells get it too, regardless of whether bashrc-core is on.
+    export PATH="${HOME}/.local/bin:${PATH}"
+    append_managed_block "claude-code-path" 'export PATH="$HOME/.local/bin:$PATH"'
+
+    if ! command_exists claude; then
+        error "claude not found on PATH after install (expected ~/.local/bin/claude)."
+        add_followup "Claude Code install may have failed — check manually: ~/.local/bin/claude --version"
+        return 1
+    fi
+
     log "Claude Code installed: $(claude --version 2>/dev/null || true)"
 }
 
@@ -851,6 +865,15 @@ main() {
     is_enabled "claude-code"     && run_step "Claude Code"               step_claude_code
 
     print_summary
+
+    # Changes to .bashrc/PATH only take effect in a NEW shell — this is why
+    # freshly-installed commands (e.g. claude) can appear "missing" until you
+    # manually open a new terminal or `source ~/.bashrc`. Do that reload
+    # automatically here so the user is dropped back into a working shell.
+    if [[ "$DRY_RUN" != "1" && -t 0 && -t 1 ]]; then
+        printf '\n%sReloading your shell so .bashrc/PATH changes take effect...%s\n' "$C_CYAN" "$C_RESET"
+        exec "${SHELL:-/bin/bash}" -l
+    fi
 }
 
 main "$@"
