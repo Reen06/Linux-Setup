@@ -872,6 +872,22 @@ main() {
 
     log "Selected modules: ${!ENABLED[*]}"
 
+    # Prime sudo once, up front, on a normal (non-raw) terminal — before any
+    # step's spinner starts. Steps call sudo internally throughout (docker,
+    # xrdp, openfoam, nvidia-toolkit, freecad, wifi-manager, ...); if sudo's
+    # credential cache is cold when one of those runs, sudo's own password
+    # prompt goes straight to the tty and gets fought over by the spinner's
+    # background redraw — same root cause as the VNC password prompt issue.
+    # Keeping the sudo timestamp alive for the whole run means no step's
+    # internal sudo call ever needs to re-prompt mid-spinner.
+    if [[ "$DRY_RUN" != "1" ]]; then
+        printf '\n%sSeveral steps need sudo — authenticate once up front:%s\n' "$C_BOLD" "$C_RESET"
+        sudo -v || { error "sudo authentication failed."; exit 1; }
+        ( while true; do sudo -n true 2>/dev/null; sleep 60; kill -0 "$$" 2>/dev/null || exit; done ) &
+        _SUDO_KEEPALIVE_PID=$!
+        trap 'kill "$_SUDO_KEEPALIVE_PID" 2>/dev/null' EXIT
+    fi
+
     # Run selected steps (always run bashrc_blocks if any bashrc module is on)
     is_enabled "system-update"   && run_step "System Update"             step_system_update
     is_enabled "base-packages"   && run_step "Base Packages"             step_base_packages
@@ -904,6 +920,10 @@ main() {
     # automatically here so the user is dropped back into a working shell.
     if [[ "$DRY_RUN" != "1" && -t 0 && -t 1 ]]; then
         printf '\n%sReloading your shell so .bashrc/PATH changes take effect...%s\n' "$C_CYAN" "$C_RESET"
+        # exec replaces this process without running the EXIT trap, which
+        # would otherwise leak the sudo keep-alive loop as an orphaned
+        # background process. Kill it explicitly first.
+        [[ -n "${_SUDO_KEEPALIVE_PID:-}" ]] && kill "$_SUDO_KEEPALIVE_PID" 2>/dev/null
         exec "${SHELL:-/bin/bash}" -l
     fi
 }
