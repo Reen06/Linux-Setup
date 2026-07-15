@@ -45,6 +45,18 @@ for _arg in "$@"; do
     esac
 done
 
+# Steps that need root already call sudo themselves. Running the whole
+# script under sudo makes $HOME (and therefore $LOGFILE/.bashrc/every
+# managed block) resolve to /root instead of your real home, and leaves
+# the final shell-reload dropping you into a root login shell instead of
+# your own.
+if [[ "${EUID}" -eq 0 ]]; then
+    printf 'Do not run this script with sudo — it calls sudo itself for the\n'
+    printf 'individual steps that need root. Run it as your normal user:\n\n'
+    printf '  bash %s\n\n' "$0"
+    exit 1
+fi
+
 # ─── Colors (terminal only; never written to log file) ────────────────────────
 if [[ -t 1 ]] && command -v tput &>/dev/null && tput colors &>/dev/null; then
     C_RED=$(tput setaf 1)
@@ -67,6 +79,7 @@ _STEP_STATUS=""             # set to "skip" inside a step function
 _SPINNER_PID=""             # PID of background spinner process
 _SPINNER_ACTIVE=0           # 1 while a step is running (suppresses log terminal output)
 _STEP_START=0               # $SECONDS at step start (for elapsed time)
+_CURRENT_STEP_NAME=""       # name of the step currently running (for pause_for_input)
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 _ts() { date '+%Y-%m-%d %H:%M:%S'; }
@@ -130,6 +143,18 @@ _stop_spinner() {
     printf '\r\033[K'
 }
 
+# Call before any prompt that reads from the terminal (e.g. a password
+# prompt). The spinner repaints the current line every 100ms in the
+# background, which garbles/hides prompts and typed input if left running
+# during an interactive read. Pairs with resume_after_input.
+pause_for_input() { _stop_spinner; }
+
+resume_after_input() {
+    [[ "$DRY_RUN" == "1" ]] && return
+    _SPINNER_ACTIVE=1
+    _start_spinner "$_CURRENT_STEP_NAME"
+}
+
 # Print one line to both terminal (with optional color) and log file (plain).
 _both() {
     local color="$1"; shift
@@ -164,6 +189,7 @@ run_step() {
 
     # Suppress terminal output from log/warn/error while spinner is running
     _SPINNER_ACTIVE=1
+    _CURRENT_STEP_NAME="$name"
     section "$name"
     printf '[INFO]  %s  ▶ Starting: %s\n' "$(_ts)" "$name" >> "$LOGFILE"
     _start_spinner "$name"
@@ -663,9 +689,15 @@ step_vnc() {
     if [[ -f "$vnc_passwd" ]]; then
         log "x11vnc password already set at ${vnc_passwd}."
     elif [[ -t 0 && "$DRY_RUN" != "1" ]]; then
-        log "Set a VNC password (used to connect from your VNC client):"
-        x11vnc -storepasswd "$vnc_passwd" \
-            || { error "Failed to set VNC password."; return 1; }
+        # Stop the spinner before prompting — it repaints the terminal line
+        # every 100ms in the background, which was garbling/hiding the
+        # "Enter VNC password" prompt and swallowing what you typed.
+        pause_for_input
+        printf '\n  Set a VNC password (used to connect from your VNC client):\n\n'
+        x11vnc -storepasswd "$vnc_passwd"
+        local _rc=$?
+        resume_after_input
+        (( _rc != 0 )) && { error "Failed to set VNC password."; return 1; }
     else
         local rand_pass
         rand_pass="$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 12)"
