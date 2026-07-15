@@ -637,6 +637,92 @@ step_wifi_manager() {
     log "wifi-manager installed. Run 'wifi-manager' from anywhere."
 }
 
+step_rdp() {
+    install_apt_pkg xrdp || return 1
+    install_apt_pkg xorgxrdp || return 1
+
+    if systemd_available; then
+        sudo systemctl enable --now xrdp >> "$LOGFILE" 2>&1 \
+            || { error "Failed to enable/start xrdp."; return 1; }
+    else
+        warn "systemd not available — xrdp not started automatically."
+        add_followup "Start xrdp manually: sudo xrdp"
+    fi
+
+    add_followup "RDP is listening on port 3389 — connect with Windows Remote Desktop Connection to this machine's IP."
+    log "RDP (xrdp) installed and running."
+}
+
+step_vnc() {
+    install_apt_pkg x11vnc || return 1
+
+    local vnc_dir="${HOME}/.vnc"
+    local vnc_passwd="${vnc_dir}/passwd"
+    mkdir -p "$vnc_dir"
+
+    if [[ -f "$vnc_passwd" ]]; then
+        log "x11vnc password already set at ${vnc_passwd}."
+    elif [[ -t 0 && "$DRY_RUN" != "1" ]]; then
+        log "Set a VNC password (used to connect from your VNC client):"
+        x11vnc -storepasswd "$vnc_passwd" \
+            || { error "Failed to set VNC password."; return 1; }
+    else
+        local rand_pass
+        rand_pass="$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 12)"
+        x11vnc -storepasswd "$rand_pass" "$vnc_passwd" >> "$LOGFILE" 2>&1 \
+            || { error "Failed to set VNC password."; return 1; }
+        warn "Non-interactive run — generated a random VNC password."
+        add_followup "A random VNC password was generated. Change it with: x11vnc -storepasswd ~/.vnc/passwd"
+    fi
+    chmod 600 "$vnc_passwd" 2>/dev/null || true
+
+    log "Writing systemd unit for x11vnc..."
+    sudo tee /etc/systemd/system/x11vnc.service >> "$LOGFILE" << UNITEOF
+[Unit]
+Description=x11vnc (share display ${VNC_DISPLAY})
+After=display-manager.service
+
+[Service]
+Type=simple
+User=${USER}
+ExecStart=/usr/bin/x11vnc -display ${VNC_DISPLAY} -auth guess -forever -loop -noxdamage -repeat -shared -rfbauth ${vnc_passwd} -rfbport ${VNC_PORT}
+Restart=on-failure
+
+[Install]
+WantedBy=graphical.target
+UNITEOF
+
+    sudo systemctl daemon-reload >> "$LOGFILE" 2>&1
+
+    if systemd_available; then
+        sudo systemctl enable --now x11vnc >> "$LOGFILE" 2>&1 \
+            || { error "Failed to enable/start x11vnc service."; return 1; }
+    else
+        warn "systemd not available — x11vnc service not started automatically."
+    fi
+
+    add_followup "VNC is listening on port ${VNC_PORT} (display ${VNC_DISPLAY}) — connect with any VNC client to this machine's IP."
+    log "VNC (x11vnc) installed and running."
+}
+
+step_remote_access_manager() {
+    if [[ -d "${REMOTE_ACCESS_MANAGER_DIR}/.git" ]]; then
+        log "Updating existing remote-access-manager checkout at ${REMOTE_ACCESS_MANAGER_DIR}..."
+        git -C "$REMOTE_ACCESS_MANAGER_DIR" pull >> "$LOGFILE" 2>&1 \
+            || { error "Failed to update remote-access-manager repo."; return 1; }
+    else
+        log "Cloning remote-access-manager from ${REMOTE_ACCESS_MANAGER_REPO}..."
+        git clone "$REMOTE_ACCESS_MANAGER_REPO" "$REMOTE_ACCESS_MANAGER_DIR" >> "$LOGFILE" 2>&1 \
+            || { error "Failed to clone remote-access-manager repo."; return 1; }
+    fi
+
+    log "Installing remote-access-manager into PATH..."
+    sudo bash "${REMOTE_ACCESS_MANAGER_DIR}/install.sh" >> "$LOGFILE" 2>&1 \
+        || { error "remote-access-manager install.sh failed."; return 1; }
+
+    log "remote-access-manager installed. Run 'remote-access-manager' from anywhere."
+}
+
 step_claude_code() {
     if command_exists claude; then
         skip_step "Claude Code already installed: $(claude --version 2>/dev/null || true)"
@@ -756,6 +842,9 @@ main() {
 
     is_enabled "nvidia-toolkit"  && run_step "NVIDIA Container Toolkit"  step_nvidia_toolkit
     is_enabled "wifi-manager"    && run_step "Wi-Fi Manager"             step_wifi_manager
+    is_enabled "rdp"             && run_step "RDP (xrdp)"                step_rdp
+    is_enabled "vnc"             && run_step "VNC (x11vnc)"              step_vnc
+    is_enabled "remote-access-manager" && run_step "Remote Access Manager" step_remote_access_manager
     is_enabled "openfoam"        && run_step "OpenFOAM"                  step_openfoam
     is_enabled "paraview"        && run_step "ParaView"                  step_paraview
     is_enabled "freecad"         && run_step "FreeCAD"                   step_freecad
