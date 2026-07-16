@@ -482,6 +482,11 @@ step_bashrc_blocks() {
             [[ -n "$_plug" ]] && core_content+=$'\n'"export NNN_PLUG='$_plug'"
         fi
         is_enabled "docker" && core_content+=$'\n'"alias dm='bash $script_dir/dm.sh'"
+        # nnn's 'e' key (and anything else that shells out to $EDITOR) falls
+        # back to vi when unset — point it at micro if micro is installed.
+        if is_enabled "base-packages" && is_subitem_enabled "base-packages" "micro"; then
+            core_content+=$'\n''export EDITOR=micro'$'\n''export VISUAL=micro'
+        fi
         append_managed_block "personal-setup-core" "$core_content"
     fi
 
